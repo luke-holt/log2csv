@@ -13,6 +13,8 @@ Options:
 -o | --ofile    File to store the CSV data
 """
 
+CSV_HEADER_STR = "Packet Type,Timestamp,Fault Flags,Filtered High Voltage,Command Vd,Command Vq,Measured Id,Measured Iq,Idq Negative Sequence,Idq Positive Sequence,I Zero Sequence,Back EMF,Estimated Torque,Torque Command,Shaft Speed,Open Loop Startup,Open Loop Fail,Speed Control Enabled,\n"
+
 TICKS_IN_1S = 75000000.0
 
 PACKET_ID_FORMAT = ">I"
@@ -46,55 +48,84 @@ def debug(msg: str) -> None:
 
 def print_debug_info(packet_id: str, timestamp: int, flags: bytes, signals: tuple) -> None:
     debug("----------------------------------------\n")
-    debug(f"{IDENTIFIERS[packet_id]}")
+
+    debug(f"Packet Type: {IDENTIFIERS[packet_id]}")
 
     time = timestamp / TICKS_IN_1S
     if time < 15.0:
-        debug(" @ {:2.4f}s\n".format(time))
+        debug("Timestamp: ")
+        debug("{:2.4f}s\n".format(time))
     else:
         debug(f" ERR: TIME ERROR: ")
         debug("{:2.4f}\ns".format(time))
 
+    debug(f"Fault Flags (hex): ")
     for i, b in enumerate(flags):
         debug("{0:x}".format(b))
     debug("\n")
 
     if signals is not None:
-        debug("  {:.3f}\n".format(signals[0]))
-        debug("  {:.3f}\n".format(signals[1]))
-        debug("  {:.3f}\n".format(signals[2]))
-        debug("  {:.3f}\n".format(signals[3]))
-        debug("  {:.3f}\n".format(signals[4]))
-        debug("  {:.3f}\n".format(signals[5]))
-        debug("  {:.3f}\n".format(signals[6]))
-        debug("  {:.3f}\n".format(signals[7]))
-        debug("  {:.3f}\n".format(signals[8]))
-        debug("  {:.3f}\n".format(signals[9]))
-        debug("  {:.3f}\n".format(signals[10]))
-        debug("  {:.3f}\n".format(signals[11]))
-        debug("  0b{0:b}\n".format(signals[12]))
+        debug("Filtered High Voltage: ")
+        debug("{:.3f}".format(signals[0]))
+        debug("\nCommand Vd: ")
+        debug("{:.3f}".format(signals[1]))
+        debug("\nCommand Vq: ")
+        debug("{:.3f}".format(signals[2]))
+        debug("\nMeasured Id: ")
+        debug("{:.3f}".format(signals[3]))
+        debug("\nMeasured Iq: ")
+        debug("{:.3f}".format(signals[4]))
+        debug("\nIdq Negative Sequence: ")
+        debug("{:.3f}".format(signals[5]))
+        debug("\nIdq Positive Sequence: ")
+        debug("{:.3f}".format(signals[6]))
+        debug("\nI Zero Sequence: ")
+        debug("{:.3f}".format(signals[7]))
+        debug("\nBack EMF: ")
+        debug("{:.3f}".format(signals[8]))
+        debug("\nTorque Command: ")
+        debug("{:.3f}".format(signals[9]))
+        debug("\nShaft Speed: ")
+        debug("{:.3f}".format(signals[10]))
+        debug("\nSpeed Controller Torque Command: ")
+        debug("{:.3f}".format(signals[11]))
+        debug("\nOpen Loop Startup: ")
+        debug(signals[12] & 0b100 == 0b100)
+        debug("\nOpen Loop Fail: ")
+        debug(signals[12] & 0b010 == 0b010)
+        debug("\nSpeed Control Enabled: ")
+        debug(signals[12] & 0b001 == 0b001)
+        debug("\n")
 
-def print_to_csv(out_file, packet_id, timestamp, flags, signals) -> None:
+def csv_print_header(out_file) -> None:
+    out_file.write(CSV_HEADER_STR)
 
-    print(f"{IDENTIFIERS[packet_id]},", end="")
-    print(f"{timestamp},", end="")
-    # TODO flags
-    print(f"{signals[0]},", end="")
-    print(f"{signals[1]},", end="")
-    print(f"{signals[2]},", end="")
-    print(f"{signals[3]},", end="")
-    print(f"{signals[4]},", end="")
-    print(f"{signals[5]},", end="")
-    print(f"{signals[6]},", end="")
-    print(f"{signals[7]},", end="")
-    print(f"{signals[8]},", end="")
-    print(f"{signals[9]},", end="")
-    print(f"{signals[10]},", end="")
-    print(f"{signals[11]},", end="")
-    print(f"{int(signals[12] & 0b1 == 0b1)},", end="")
-    print(f"{int(signals[12] & 0b10 == 0b10)},", end="")
-    print(f"{int(signals[12] & 0b100 == 0b100)},", end="")
-    print("")
+def csv_print_entry(out_file, packet_id, timestamp, flags, signals) -> None:
+    w = out_file.write
+
+    w(f"{IDENTIFIERS[packet_id]},")
+    w(f"{timestamp},")
+
+    for i, b in enumerate(flags):
+        w("{0:x}".format(b))
+    w(",")
+
+    w(f"{signals[0]},")
+    w(f"{signals[1]},")
+    w(f"{signals[2]},")
+    w(f"{signals[3]},")
+    w(f"{signals[4]},")
+    w(f"{signals[5]},")
+    w(f"{signals[6]},")
+    w(f"{signals[7]},")
+    w(f"{signals[8]},")
+    w(f"{signals[9]},")
+    w(f"{signals[10]},")
+    w(f"{signals[11]},")
+    w(f"{int(signals[12] & 0b1 == 0b1)},")
+    w(f"{int(signals[12] & 0b10 == 0b10)},")
+    w(f"{int(signals[12] & 0b100 == 0b100)},")
+    w("\n")
 
 def parse_input_args(argv) -> (str, str):
     global g_debug_mode
@@ -121,10 +152,13 @@ def parse_input_args(argv) -> (str, str):
     return input_file, output_file
 
 def main(argv):
-    in_file, out_file = parse_input_args(argv)
+    in_path, out_path = parse_input_args(argv)
 
-    with open(in_file, "rb") as file:
+    with open(in_path, "rb") as file:
         logfile_bytes = file.read()
+    
+    out_file = open(out_path, "w")
+    csv_print_header(out_file)
 
     i = 0
     while i < len(logfile_bytes):
@@ -161,7 +195,7 @@ def main(argv):
             signal_size = struct.unpack(BYTE_FORMAT, signal_size_bytes)[0]
             j += 1
 
-            nsignals = int.from_bytes(signal_size_bytes)
+            nsignals = int.from_bytes(signal_size_bytes, byteorder="big")
             if nsignals != 49:
                 debug(f"ERR: {IDENTIFIERS[packet_id]}: SIGSZ: act({nsignals}) != exp(49) at i {hex(j)}\n")
                 i += 1
@@ -174,11 +208,12 @@ def main(argv):
 
         print_debug_info(packet_id, timestamp, flags, signals)
         
-        print_to_csv(out_file, packet_id, timestamp, flags, signals)
+        csv_print_entry(out_file, packet_id, timestamp, flags, signals)
 
         # update i
         i = j
+    
+    out_file.close()
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-
