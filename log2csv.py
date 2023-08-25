@@ -7,10 +7,10 @@ Input file: Binary log file
 Output file: CSV file containing human-readable log data
 
 Options:
--d | --debug    Print debug info
--h | --help     Print this message
--i | --ifile    Binary log file to read
--o | --ofile    File to store the CSV data
+  -d    Print debug info
+  -h    Print this message
+  -i    Binary log file to read
+  -o    File to store the CSV data
 """
 
 CSV_HEADER_STR = "Packet Type,Timestamp,Fault Flags,Filtered High Voltage,Command Vd,Command Vq,Measured Id,Measured Iq,Idq Negative Sequence,Idq Positive Sequence,I Zero Sequence,Back EMF,Estimated Torque,Torque Command,Shaft Speed,Open Loop Startup,Open Loop Fail,Speed Control Enabled,\n"
@@ -97,10 +97,10 @@ def print_debug_info(packet_id: str, timestamp: int, flags: bytes, signals: tupl
         debug(signals[12] & 0b001 == 0b001)
         debug("\n")
 
-def csv_print_header(out_file) -> None:
+def csv_write_header(out_file) -> None:
     out_file.write(CSV_HEADER_STR)
 
-def csv_print_entry(out_file, packet_id, timestamp, flags, signals) -> None:
+def csv_write_entry(out_file, packet_id, timestamp, flags, signals) -> None:
     w = out_file.write
 
     w(f"{IDENTIFIERS[packet_id]},")
@@ -110,38 +110,41 @@ def csv_print_entry(out_file, packet_id, timestamp, flags, signals) -> None:
         w("{0:x}".format(b))
     w(",")
 
-    w(f"{signals[0]},")
-    w(f"{signals[1]},")
-    w(f"{signals[2]},")
-    w(f"{signals[3]},")
-    w(f"{signals[4]},")
-    w(f"{signals[5]},")
-    w(f"{signals[6]},")
-    w(f"{signals[7]},")
-    w(f"{signals[8]},")
-    w(f"{signals[9]},")
-    w(f"{signals[10]},")
-    w(f"{signals[11]},")
-    w(f"{int(signals[12] & 0b1 == 0b1)},")
-    w(f"{int(signals[12] & 0b10 == 0b10)},")
-    w(f"{int(signals[12] & 0b100 == 0b100)},")
+    if signals is not None:
+        w(f"{signals[0]},")
+        w(f"{signals[1]},")
+        w(f"{signals[2]},")
+        w(f"{signals[3]},")
+        w(f"{signals[4]},")
+        w(f"{signals[5]},")
+        w(f"{signals[6]},")
+        w(f"{signals[7]},")
+        w(f"{signals[8]},")
+        w(f"{signals[9]},")
+        w(f"{signals[10]},")
+        w(f"{signals[11]},")
+        w(f"{int(signals[12] & 0b1 == 0b1)},")
+        w(f"{int(signals[12] & 0b10 == 0b10)},")
+        w(f"{int(signals[12] & 0b100 == 0b100)},")
+
     w("\n")
+
 
 def parse_input_args(argv) -> (str, str):
     global g_debug_mode
     input_file = ""
     output_file = ""
 
-    opts, args, = getopt.getopt(argv, "dhi:o:", ["debug", "ifile", "ofile"])
+    opts, args, = getopt.getopt(argv, "dhi:o:")
 
     for opt, arg in opts:
-        if opt in ("-d", "--debug"):
+        if opt == "-d":
             g_debug_mode = True
         elif opt == "-h":
             die(HELP_MESSAGE)
-        elif opt in ("-i", "--ifile"):
+        elif opt == "-i":
             input_file = arg
-        elif opt in ("-o", "--ofile"):
+        elif opt == "-o":
             output_file = arg
 
     if input_file == "":
@@ -158,12 +161,12 @@ def main(argv):
         logfile_bytes = file.read()
     
     out_file = open(out_path, "w")
-    csv_print_header(out_file)
+    csv_write_header(out_file)
 
     i = 0
     while i < len(logfile_bytes):
         packet_id = bytes(logfile_bytes[i:i+4])
-        if packet_id not in [PKTID_MOTOR]:
+        if packet_id not in IDENTIFIERS.keys():
             i += 1
             continue
         j = i + 4
@@ -192,10 +195,9 @@ def main(argv):
         if packet_id == PKTID_MOTOR:
             # unpack sizeof signals
             signal_size_bytes = logfile_bytes[j:j+1]
-            signal_size = struct.unpack(BYTE_FORMAT, signal_size_bytes)[0]
+            nsignals = struct.unpack(BYTE_FORMAT, signal_size_bytes)[0]
             j += 1
 
-            nsignals = int.from_bytes(signal_size_bytes, byteorder="big")
             if nsignals != 49:
                 debug(f"ERR: {IDENTIFIERS[packet_id]}: SIGSZ: act({nsignals}) != exp(49) at i {hex(j)}\n")
                 i += 1
@@ -208,11 +210,11 @@ def main(argv):
 
         print_debug_info(packet_id, timestamp, flags, signals)
         
-        csv_print_entry(out_file, packet_id, timestamp, flags, signals)
+        csv_write_entry(out_file, packet_id, timestamp, flags, signals)
 
         # update i
         i = j
-    
+
     out_file.close()
 
 if __name__ == "__main__":
