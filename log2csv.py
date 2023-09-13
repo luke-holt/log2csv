@@ -13,7 +13,7 @@ Options:
   -o    File to store the CSV data
 """
 
-CSV_HEADER_STR = "Packet Type,Timestamp,Fault Flags,Filtered High Voltage,Command Vd,Command Vq,Measured Id,Measured Iq,Idq Negative Sequence,Idq Positive Sequence,I Zero Sequence,Back EMF,Estimated Torque,Torque Command,Shaft Speed,Open Loop Startup,Open Loop Fail,Speed Control Enabled,\n"
+CSV_HEADER_STR = "Packet Type,Timestamp (s),Fault Flags (hex),Transitions (Fault IDs),Filtered High Voltage,Command Vd,Command Vq,Measured Id,Measured Iq,Idq Negative Sequence,Idq Positive Sequence,I Zero Sequence,Back EMF,Estimated Torque,Torque Command,Shaft Speed,Open Loop Startup,Open Loop Fail,Speed Control Enabled,\n"
 
 TICKS_IN_1S = 75000000.0
 
@@ -29,10 +29,10 @@ PKTID_PWRON = b"\x99\x99\x99\x99"
 PKTID_PWROF = b"\x66\x66\x66\x66"
 
 IDENTIFIERS = {
-    PKTID_MOTOR : "MOTOR PACKET",
-    PKTID_FAULT : "FAULT PACKET",
-    PKTID_PWRON : "POWER ON PACKET",
-    PKTID_PWROF : "POWER OFF PACKET",
+    PKTID_MOTOR : "MOTOR",
+    PKTID_FAULT : "FAULT",
+    PKTID_PWRON : "POWER ON",
+    PKTID_PWROF : "POWER OFF",
 }
 
 g_debug_mode = False
@@ -51,13 +51,7 @@ def print_debug_info(packet_id: str, timestamp: int, flags: bytes, signals: tupl
 
     debug(f"Packet Type: {IDENTIFIERS[packet_id]}")
 
-    time = timestamp / TICKS_IN_1S
-    if time < 15.0:
-        debug("Timestamp: ")
-        debug("{:2.4f}s\n".format(time))
-    else:
-        debug(f" ERR: TIME ERROR: ")
-        debug("{:2.4f}\ns".format(time))
+    debug(f"Timestamp: {timestamp}")
 
     debug(f"Fault Flags (hex): ")
     for i, b in enumerate(flags):
@@ -100,34 +94,39 @@ def print_debug_info(packet_id: str, timestamp: int, flags: bytes, signals: tupl
 def csv_write_header(out_file) -> None:
     out_file.write(CSV_HEADER_STR)
 
-def csv_write_entry(out_file, packet_id, timestamp, flags, signals) -> None:
-    w = out_file.write
+def csv_write_entry(out_file, packet_id, timestamp, flags, transitions, signals) -> None:
+    line = ""
 
-    w(f"{IDENTIFIERS[packet_id]},")
-    w(f"{timestamp},")
+    line += f"{IDENTIFIERS[packet_id]},"
 
-    for i, b in enumerate(flags):
-        w("{0:x}".format(b))
-    w(",")
+    line += f"{timestamp},"
+
+    for f in flags:
+        line += "{:02x} ".format(f)
+    line += ","
+
+    line += transitions + ","
 
     if signals is not None:
-        w(f"{signals[0]},")
-        w(f"{signals[1]},")
-        w(f"{signals[2]},")
-        w(f"{signals[3]},")
-        w(f"{signals[4]},")
-        w(f"{signals[5]},")
-        w(f"{signals[6]},")
-        w(f"{signals[7]},")
-        w(f"{signals[8]},")
-        w(f"{signals[9]},")
-        w(f"{signals[10]},")
-        w(f"{signals[11]},")
-        w(f"{int(signals[12] & 0b1 == 0b1)},")
-        w(f"{int(signals[12] & 0b10 == 0b10)},")
-        w(f"{int(signals[12] & 0b100 == 0b100)},")
+        line += f"{signals[0]},"
+        line += f"{signals[1]},"
+        line += f"{signals[2]},"
+        line += f"{signals[3]},"
+        line += f"{signals[4]},"
+        line += f"{signals[5]},"
+        line += f"{signals[6]},"
+        line += f"{signals[7]},"
+        line += f"{signals[8]},"
+        line += f"{signals[9]},"
+        line += f"{signals[10]},"
+        line += f"{signals[11]},"
+        line += f"{int(signals[12] & 0b1 == 0b1)},"
+        line += f"{int(signals[12] & 0b10 == 0b10)},"
+        line += f"{int(signals[12] & 0b100 == 0b100)},"
 
-    w("\n")
+    line += "\n"
+
+    out_file.write(line)
 
 
 def parse_input_args(argv) -> (str, str):
@@ -174,6 +173,8 @@ def main(argv):
         # unpack timestamp
         timestamp_bytes = logfile_bytes[j:j+8]
         timestamp = struct.unpack(TIMESTAMP_FORMAT, timestamp_bytes)[0]
+        timestamp /= TICKS_IN_1S
+        timestamp = "{:.10f}".format(timestamp)
         j += 8
 
         # unpack sizeof flags
@@ -207,10 +208,23 @@ def main(argv):
             signal_data_bytes = logfile_bytes[j:j+49]
             signals = struct.unpack(MOTOR_SIGNAL_STRUCT_FORMAT, signal_data_bytes)
             j += nsignals
+        
+        transitions = ""
+        offset = 0
+        # for each byte in bitfield
+        for byte in flags:
+            if byte == 0:
+                offset += 1
+                continue
+            # for each bit in byte
+            for bit in range(8):
+                pos = offset * 8 + bit
+                if (byte >> bit) & 1:
+                    transitions += str(pos) + ';'
 
         print_debug_info(packet_id, timestamp, flags, signals)
         
-        csv_write_entry(out_file, packet_id, timestamp, flags, signals)
+        csv_write_entry(out_file, packet_id, timestamp, flags, transitions, signals)
 
         # update i
         i = j
